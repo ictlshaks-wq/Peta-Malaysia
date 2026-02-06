@@ -174,6 +174,12 @@
   </main>
 
 <script>
+  // ================== KONFIG (TUKAR JIKA PERLU)
+  // Letak fail JSON dalam repo: /data/datasekmalaysia.json
+  // (rujuk screenshot tuan: folder data ada datasekmalaysia.json)
+  const DATA_URL = './data/datasekmalaysia.json';
+  // ==================
+
   // ===== helpers
   function showLoading(on, text){
     const el = document.getElementById('loading');
@@ -192,18 +198,27 @@
   L.control.zoom({ position:'bottomright' }).addTo(map);
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{ attribution:'© OpenStreetMap' }).addTo(map);
 
-  const clusters = L.markerClusterGroup({ spiderfyOnMaxZoom:true, showCoverageOnHover:false, maxClusterRadius:50, disableClusteringAtZoom:15 });
+  const clusters = L.markerClusterGroup({
+    spiderfyOnMaxZoom:true,
+    showCoverageOnHover:false,
+    maxClusterRadius:50,
+    disableClusteringAtZoom:15
+  });
   map.addLayer(clusters);
 
   // ===== data + filter map
   let allData = [];
   let negeriMap = {}; // negeri -> Set(ppd)
 
+  // Lebih tepat untuk dataset tuan: guna PERINGKAT (Rendah/Menengah)
   function isSM(s){
+    const p = String(s.peringkat || '').toUpperCase();
+    if (p.includes('MENENGAH')) return true;
+    if (p.includes('RENDAH')) return false;
+
+    // fallback jika peringkat tiada
     const j = String(s.jenis||'').toUpperCase();
-    if (j.includes('SM') || j.includes('SMK') || j.includes('SBP') || j.includes('KV') || j.includes('SMA') || j.includes('TEKNIK')) return true;
-    const n = String(s.nama||'').toUpperCase();
-    return n.includes('MENENGAH') || n.includes('SMK') || n.includes('KV') || n.includes('SMA') || n.includes('TEKNIK');
+    return j.includes('SM') || j.includes('SMK') || j.includes('KV') || j.includes('SBP') || j.includes('SMA') || j.includes('TEKNIK');
   }
 
   function iconSvgSR(){
@@ -292,8 +307,8 @@
       const m = L.marker([lat,lng], { icon: makeIcon(color, sm) });
 
       m.bindTooltip(String(s.nama||''), { permanent:true, direction:'top', className:'school-label', offset:[0,-16] });
-
       m.on('click', ()=>showInfo(s, color, sm));
+
       clusters.addLayer(m);
       bounds.push([lat,lng]);
     });
@@ -322,6 +337,7 @@
 
     document.getElementById('ipFokus').onclick = () => map.flyTo([s.lat, s.lng], 16, { animate:true, duration:1.2 });
     document.getElementById('ipNav').href = `https://www.google.com/maps/dir/?api=1&destination=${s.lat},${s.lng}`;
+
     map.flyTo([s.lat, s.lng], Math.max(map.getZoom(), 10), { animate:true, duration:0.9 });
   }
   function hideInfo(){ document.getElementById('infoPanel').classList.add('hidden'); }
@@ -336,7 +352,9 @@
       const okN = !negeri || String(s.negeri||'').trim() === negeri;
       const okP = !ppd || String(s.ppd||'').trim() === ppd;
       const okJ = !jenis || String(s.jenis||'').trim() === jenis;
-      const okQ = !q || String(s.nama||'').toLowerCase().includes(q) || String(s.kod||'').toLowerCase().includes(q);
+      const okQ = !q
+        || String(s.nama||'').toLowerCase().includes(q)
+        || String(s.kod||'').toLowerCase().includes(q);
       return okN && okP && okJ && okQ;
     });
 
@@ -352,45 +370,52 @@
     updatePPD();
   }
 
-  // ===== LOAD JSON
+  // ===== LOAD JSON (ikut struktur JSON tuan: FIELD HURUF BESAR)
   async function loadJSON(){
     try{
       showLoading(true,'Memuatkan data sekolah (JSON)...');
       hideError();
 
-      // Tukar path jika nama fail lain
-      const res = await fetch('./data/datasekmalaysia.json', { cache:'no-store' });
+      const res = await fetch(DATA_URL, { cache:'no-store' });
       if(!res.ok) throw new Error('Gagal fetch JSON: ' + res.status);
 
       const data = await res.json();
       if(!Array.isArray(data) || !data.length) throw new Error('JSON kosong / format bukan array');
 
-      // Pastikan field utama wujud (negeri, ppd, jenis, lat, lng)
+      // IMPORTANT:
+      // KOORDINATXX = longitude (lng)
+      // KOORDINATYY = latitude (lat)
       allData = data
         .map(s => ({
-          negeri: s.negeri ?? '',
-          ppd: s.ppd ?? '',
-          jenis: s.jenis ?? '',
-          kod: s.kod ?? '',
-          nama: s.nama ?? '',
-          lokasi: s.lokasi ?? '-',
-          gred: s.gred ?? '-',
-          sesi: s.sesi ?? '-',
-          tel: s.tel ?? '-',
-          email: s.email ?? '-',
-          enrolmen: s.enrolmen ?? 0,
-          guru: s.guru ?? 0,
-          lat: Number(s.lat),
-          lng: Number(s.lng)
+          negeri: String(s["NEGERI"] ?? "").trim(),
+          ppd: String(s["PPD"] ?? "").trim(),
+          jenis: String(s["JENIS/LABEL"] ?? "").trim(),
+          kod: String(s["KODSEKOLAH"] ?? "").trim(),
+          nama: String(s["NAMASEKOLAH"] ?? "").trim(),
+
+          lokasi: String(s["LOKASI"] ?? "-").trim(),
+          gred: String(s["GRED"] ?? "-").trim(),
+          sesi: String(s["SESI"] ?? "-").trim(),
+
+          tel: String(s["NOTELEFON"] ?? "-").trim(),
+          email: String(s["EMAIL"] ?? "-").trim(),
+
+          enrolmen: Number(s["ENROLMEN"] ?? 0) || 0,
+          guru: Number(s["GURU"] ?? 0) || 0,
+
+          peringkat: String(s["PERINGKAT"] ?? "").trim(),
+
+          lng: Number(s["KOORDINATXX"]),
+          lat: Number(s["KOORDINATYY"])
         }))
-        .filter(s => Number.isFinite(s.lat) && Number.isFinite(s.lng));
+        .filter(x => Number.isFinite(x.lat) && Number.isFinite(x.lng));
 
       initFilters(allData);
       drawMarkers(allData, true);
       showLoading(false);
     }catch(e){
       showLoading(false);
-      showError(e.message || String(e));
+      showError(e?.message || String(e));
     }
   }
 
@@ -398,3 +423,5 @@
 </script>
 </body>
 </html>
+
+
